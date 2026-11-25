@@ -144,6 +144,12 @@ def autowarm_env(tmp_path, monkeypatch):
         def collection(self, name):
             return SimpleNamespace(count=lambda: 500)
 
+    # Мок по местам потребления: _ensure_stack зовёт глобальную
+    # st.VectorStore (from-import на уровне модуля), а _run_warmup и
+    # _run_auto_warm — function-level import из vs. Без мока st реальный
+    # VectorStore пишет в _qdrant_local_path()=/data/qdrant: на CI-раннере
+    # (не-root) исключение → _ensure_stack вернёт False.
+    monkeypatch.setattr(st, "VectorStore", lambda **kwargs: _Store(**kwargs))
     monkeypatch.setattr(vs, "VectorStore", lambda **kwargs: _Store(**kwargs))
     monkeypatch.setattr(registry_mod, "collection_name",
                         lambda c: "cfg_aw_code")
