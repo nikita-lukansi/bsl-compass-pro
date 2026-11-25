@@ -299,21 +299,12 @@ SECURITY.md).
 |---|---|---|
 | Ядро-фасад, панель, рантайм, семантика | этот репозиторий | AGPL-3.0 |
 | Rust-слой индексации | vendored [gyrfalcon](https://github.com/aleksandrgradoboev-svg/gyrfalcon) v0.1.20 | MIT (NOTICE.md, pristine fork) |
-| Обработка «КомпасРантайм» | собственная реализация (сверка с 1c-mcp-toolkit GPL-3.0: 0 пересечений, 2026-11-12) | AGPL-3.0 |
+| Обработка «КомпасРантайм» | собственная реализация | AGPL-3.0 |
 
-История: изделие переведено с Apache-2.0 на AGPL-3.0 (решение владельца,
-до первой публикации). Pro — наследник внутреннего проекта Community;
-миграция не требуется, общего кода с ним изделие не содержит.
 
 <details>
 <summary>Как строился код этого репозитория</summary>
 
-Код попадал сюда через гейт: фича обкатана на живом стенде, лицензионная
-проверка (авторский код по git-истории / MIT-компонент в NOTICE / переписан
-начисто), затем перенос. Производные AGPL-кода апстрима не переносились —
-их место занял Rust-слой. Авторство промоутированных файлов (ядро-фасад,
-панель, журнал, семантика) подтверждено git-историей: только идентити
-правообладателя.
 
 </details>
 
@@ -340,28 +331,3 @@ cd panel && npm ci && npm run build # панель
 docker compose build                # образ собирает rust + panel + runtime стейджами
 ```
 
-### Зеркала базовых образов (GHCR)
-
-Страховка от морганий auth.docker.io (инциденты 18–19.11: `docker compose
-build` падал на `failed to fetch anonymous token auth.docker.io`). Workflow
-[`.github/workflows/mirror-images.yml`](.github/workflows/mirror-images.yml)
-ретранслирует базовые образы Dockerfile — `rust:1-bookworm`,
-`node:22-alpine`, `python:3.12-slim` — в
-`ghcr.io/nikita-lukansi/bsl-compass-pro/base/<имя>`: плавающий тег исходника
-(`base/rust:1-bookworm`, его же указывает Dockerfile) плюс датированный
-снапшот `<тег>-ГГГГММДД` для отката. Запуск: вручную (Actions →
-mirror-images → Run workflow) или раз в неделю по расписанию.
-
-Как переключить сборку на зеркала (резерв на случай недоступности docker.io):
-
-1. В GHCR перевести пакеты `bsl-compass-pro/base/*` в public — первый push
-   создаёт их приватными, CI-pull без логина их не увидит.
-2. В `Dockerfile` раскомментировать `ARG BASE_REGISTRY` и заменить три
-   `FROM` на `${BASE_REGISTRY}/…` (готовый блок-подсказка — в шапке
-   `Dockerfile`; ARG до первого FROM применим в строках FROM, BuildKit).
-3. Собрать: `BASE_REGISTRY=ghcr.io/nikita-lukansi/bsl-compass-pro/base
-   docker compose build` — проброс `build.args.BASE_REGISTRY` уже есть в
-   `docker-compose.yml` (дефолт `docker.io`).
-
-Откат на дату — датированный тег в той же переменной. Без `BASE_REGISTRY`
-сборка идёт с docker.io, как раньше; зеркала не обязательны.
