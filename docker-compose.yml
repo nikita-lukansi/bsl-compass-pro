@@ -1,0 +1,107 @@
+services:
+  compass:
+    build:
+      context: .
+      # SHA из команды сборки (1mj.7):
+      #   GIT_SHA=$(git rev-parse --short HEAD) docker compose build
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
+        # Реестр базовых образов (compass-7su): дефолт docker.io — как раньше.
+        # День X (dx4.6): BASE_REGISTRY=ghcr.io/nikita-lukansi/bsl-compass-pro/base
+        # (зеркала публикует workflow mirror-images.yml; ARG в Dockerfile пока
+        # закомментирован — проброс готов к переключению, до дня X игнорируется)
+        BASE_REGISTRY: ${BASE_REGISTRY:-docker.io}
+    # GHCR-образ (compass-p3d): `docker compose up` подтягивает готовый
+    # образ из registry; разработчикам — docker compose build (локальная
+    # сборка перетегивает этот же тег)
+    image: ghcr.io/nikita-lukansi/bsl-compass-pro:latest
+    container_name: bsl-compass-pro
+    ports:
+      # Только localhost: панель и MCP не смотрят наружу (issue #2 опыта Community)
+      - "127.0.0.1:${MCP_PORT:-8240}:8240"
+    volumes:
+      # Точки входа выгрузок (arch-storage v0.2 §2: read-only скан при
+      # добавлении; после копирования в /data/configs/<cid>/source хост-дамп
+      # можно удалить). Системная зона (settings/бэкапы/логи) — ВНУТРИ
+      # volume compass-data: /data/system; офлайн-обмен выводится на хост
+      # bind'ом OFFLINE_HUB (ниже).
+      - ${DUMPS_HUB:-./dumps}:/dumps:ro
+      # .env — настройки ИТС/эмбеддингов и т.п.
+      - ./.env:/env/.env:rw
+      # Данные контейнера: индексы, реестр, журналы — том, переживает всё
+      - compass-data:/data
+      # Каталог офлайн-обмена (biq.5): bind — виден и контейнеру, и базе 1С
+      # на хосте; путь задаётся OFFLINE_HUB в .env
+      - ${OFFLINE_HUB:-./offline}:/data/system/offline
+      # Входные хабы (compass-85s): выгрузки расширений и готовые
+      # док-корпусы; read-only скан, рабочие копии ядро кладёт в volume
+      # (/data/extensions/<cid>/, /data/configs/<cid>/help/<source_id>/)
+      - ${EXT_HUB:-./ext-dumps}:/ext-dumps:ro
+      - ${DOCS_HUB:-./docs-dumps}:/docs-dumps:ro
+    environment:
+      - MCP_PORT=${MCP_PORT:-8240}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      # Режим рантайма 1С-контура: offline — файловый обмен (дефолт compose),
+      # online — HTTP к RUNTIME_URL
+      - RUNTIME_MODE=${RUNTIME_MODE:-offline}
+      # Семантический слой (режим full): OpenAI-совместимый провайдер
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-}
+      - EMBEDDING_TIMEOUT=${EMBEDDING_TIMEOUT:-120}
+      - EMBEDDING_QUERY_INSTRUCT=${EMBEDDING_QUERY_INSTRUCT:-on}
+      # Qdrant: сервер рядом (сервис ниже) или external через QDRANT_URL
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      # Хабы выгрузок (compass-bcl): фактические пути для /api/status.hubs —
+      # без проброса панель показывает дефолты даже при внешнем пути в .env.
+      # Значения — host-сторона маунтов; контейнерные тула (state.py,
+      # ext_hub_root/docs_hub_root) берут их только если путь существует
+      # внутри контейнера, иначе маунт-пойнт (/dumps, /ext-dumps, /docs-dumps)
+      - DUMPS_HUB=${DUMPS_HUB:-./dumps}
+      - EXT_HUB=${EXT_HUB:-./ext-dumps}
+      - DOCS_HUB=${DOCS_HUB:-./docs-dumps}
+      # Проверка актуальности версии контура vs GitHub main (compass-82a):
+      # GITHUB_TOKEN нужен только для приватного репо (fine-grained PAT,
+      # Contents Read-only); после публикации — без токена.
+      # UPDATE_CHECK=off — выключить проверку (офлайн-контуры).
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - UPDATE_CHECK=${UPDATE_CHECK:-on}
+      # Онлайн-контур 1С (RUNTIME_MODE=online): HTTP-endpoint и токен
+      # рантайма (src/runtime/client.py); пусто = не настроен
+      - RUNTIME_URL=${RUNTIME_URL:-}
+      - RUNTIME_TOKEN=${RUNTIME_TOKEN:-}
+      # Офлайн-архив контура (src/runtime/tasks.py): сырые ответы в archive/
+      # и TTL задач в секундах. Дефолты дублируем явно: числовые env парсятся
+      # int()/float() на уровне модуля — пустая строка уронила бы импорт
+      # (604800 = 7 суток)
+      - ARCHIVE_RAW=${ARCHIVE_RAW:-on}
+      - ARCHIVE_TTL=${ARCHIVE_TTL:-604800}
+      # Telegram-нотификации сборок (src/notify.py): пусто = выключено
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      # Бэкапы: авто-слепок после сборки (src/main.py) и число хранимых
+      # копий (src/backup.py); KEEP — числовой, дефолт непустой
+      - BACKUP_AUTO=${BACKUP_AUTO:-off}
+      - BACKUP_KEEP=${BACKUP_KEEP:-3}
+      # Креды ИТС для обновления док-корпуса (src/config.py читает
+      # ITS_LOGIN/ITS_PASSWORD — имя логина по коду, не ITS_USERNAME):
+      # дают help_sync в штатном Docker; панельные поля настроек — отдельно
+      - ITS_LOGIN=${ITS_LOGIN:-}
+      - ITS_PASSWORD=${ITS_PASSWORD:-}
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+
+  # Векторное хранилище: on_disk — RAM не растёт с базой
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    container_name: bsl-compass-pro-qdrant
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    environment:
+      - QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS=4
+    restart: unless-stopped
+
+volumes:
+  compass-data:
+  qdrant-storage:

@@ -1,0 +1,26 @@
+# Ruff: линт без форматера, минимум правил.
+# Цель — ловить реальные ошибки и очевидные дыры безопасности,
+# не спорить о стиле (стиль проекта — свой; line-length — потолок
+# для E501, остальное форматирование не нормируется).
+line-length = 120
+target-version = "py312"
+exclude = [".venv", "vendored", "panel", "blocks", "Изменения", "beads-board"]
+
+[lint]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes: неиспользуемые импорты/переменные, неопределённые имена
+    "W",  # warnings: пробелы, trailing whitespace
+    # Из bandit — только очевидные дыры: assert в прод-коде, exec,
+    # pickle, слабые хэши, небезопасный yaml. Шумные S (SQL-строки из
+    # реестра, urllopen на свои эндпоинты и т.п.) не выбираем.
+    "S101",  # assert вне тестов
+    "S102",  # exec
+    "S301",  # pickle.load
+    "S324",  # небезопасный хэш (md5/sha1)
+    "S506",  # yaml.load без SafeLoader
+]
+
+[lint.per-file-ignores]
+# Тесты: assert-ы — норм
+"tests/*" = ["S101"]

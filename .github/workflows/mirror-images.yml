@@ -1,0 +1,79 @@
+# Зеркалирование базовых образов в GHCR (compass-7su, подготовка dx4.6).
+# Страховка CI и локальных docker build от морганий auth.docker.io
+# (инциденты 18-19.11: 'failed to fetch anonymous token auth.docker.io').
+# Список = точные теги FROM основного Dockerfile: rust:1-bookworm,
+# node:22-alpine, python:3.12-slim (docker:27-cli из черновика задачи
+# в Dockerfile не используется — не зеркалим; добавить строкой в matrix).
+# Цель: ghcr.io/nikita-lukansi/bsl-compass-pro/base/<имя>. Политика тегов:
+# плавающий тег исходника (base/rust:1-bookworm — его указывает Dockerfile
+# через BASE_REGISTRY) + датированный снапшот <тег>-ГГГГММДД для отката.
+# Первый прогон создаёт пакеты GHCR ПРИВАТНЫМИ — для CI-pull без логина
+# перевести в public (Settings → Packages). День первого запуска — dx4.6
+# по решению владельца; публикация образов — внешний акт.
+name: mirror-images
+
+# Публикация образов — внешний акт владельца: только ручной запуск
+# (schedule снят: зеркала обновляются осознанно, вместе с решением о
+# переключении BASE_REGISTRY в день X)
+on:
+  workflow_dispatch:
+
+# Минимум по умолчанию; джоб расширяет packages: write на своём уровне
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-images
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: зеркало ${{ matrix.source }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Единое место списка: сменили тег в Dockerfile — поправить здесь
+        include:
+          - source: rust:1-bookworm
+            mirror: rust
+          - source: node:22-alpine
+            mirror: node
+          - source: python:3.12-slim
+            mirror: python
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Логин в GHCR
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+      - name: Pull исходника → retag → push (плавающий + датированный)
+        run: |
+          set -euo pipefail
+          SRC="${{ matrix.source }}"
+          TAG="${SRC##*:}"
+          DEST="ghcr.io/${{ github.repository_owner }}/bsl-compass-pro/base/${{ matrix.mirror }}"
+          DATE="$(date -u +%Y%m%d)"
+          echo "=== ${SRC} → ${DEST}:{${TAG},${TAG}-${DATE}} ==="
+          docker pull "${SRC}"
+          docker tag "${SRC}" "${DEST}:${TAG}"
+          docker tag "${SRC}" "${DEST}:${TAG}-${DATE}"
+          docker push "${DEST}:${TAG}"
+          docker push "${DEST}:${TAG}-${DATE}"
+      - name: Проверка манифестов после push
+        run: |
+          set -euo pipefail
+          SRC="${{ matrix.source }}"
+          TAG="${SRC##*:}"
+          DEST="ghcr.io/${{ github.repository_owner }}/bsl-compass-pro/base/${{ matrix.mirror }}"
+          DATE="$(date -u +%Y%m%d)"
+          docker manifest inspect "${DEST}:${TAG}" > /dev/null \
+            && echo "OK ${DEST}:${TAG}"
+          docker manifest inspect "${DEST}:${TAG}-${DATE}" > /dev/null \
+            && echo "OK ${DEST}:${TAG}-${DATE}"
+      - name: Выход из registry
+        if: always()
+        run: docker logout ghcr.io

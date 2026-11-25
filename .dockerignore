@@ -1,0 +1,28 @@
+# Контекст сборки — только то, что нужно Dockerfile (R10/A22):
+# rust-стейдж берёт vendored/gyrfalcon, panel-стейдж — panel/, runtime — src/.
+# Остальное (данные, дампы, индексы, хранилища) в контекст не попадает.
+.git
+Изменения
+workspace
+dumps
+backups
+inbox
+blocks
+tests
+panel/node_modules
+**/__pycache__
+*.db
+*.db-wal
+*.db-shm
+*.log
+.pytest_cache
+# корневая licenses/ в образ не копируется (в образ идёт vendored/gyrfalcon/LICENSE)
+licenses
+docs
+.DS_Store
+# Секреты: env-файлы в контексте сборки не нужны — Dockerfile их не COPYит,
+# compose монтирует .env как volume в рантайме (находка внешнего PR #1).
+.env
+.env.local
+.env.*.local
+.env.example

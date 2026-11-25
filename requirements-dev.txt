@@ -1,0 +1,10 @@
+# Dev-зависимости BSL Compass Pro (CI и локальная разработка).
+# Рантайм — в requirements.txt; сюда инструменты качества не попадают.
+# fastmcp/uvicorn/httpx — тест-окружение для src.main (аудит TEST-1:
+# поведенческий HTTP-смок TestClient; снимает правило «src.main не
+# импортируется» для НОВЫХ тестов).
+pytest>=8.0
+ruff>=0.8
+fastmcp>=2.0.0,<3.0.0
+uvicorn>=0.30.0
+httpx>=0.27
